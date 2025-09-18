@@ -1,0 +1,175 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: roro_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: Password
+      MYSQL_DATABASE: roro_management_system
+      MYSQL_USER: roro_user
+      MYSQL_PASSWORD: roro_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./mysql-config:/etc/mysql/conf.d:ro
+    networks:
+      - roro_network
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-pPassword",
+        ]
+      timeout: 20s
+      retries: 10
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.3
+    container_name: roro_keycloak
+    restart: unless-stopped
+    environment:
+      # Database connection
+      KC_DB: mysql
+      KC_DB_URL: jdbc:mysql://mysql:3306/keycloak
+      KC_DB_USERNAME: root
+      KC_DB_PASSWORD: Password
+
+      # Keycloak admin credentials
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+      # Keycloak configuration
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8180
+      KC_HTTP_ENABLED: true
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HEALTH_ENABLED: true
+      KC_METRICS_ENABLED: true
+
+      # Development mode
+      KC_LOG_LEVEL: INFO
+    ports:
+      - "8180:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak-config:/opt/keycloak/data/import:ro
+    networks:
+      - roro_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: start-dev --import-realm
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n' >&3;grep 'HTTP/1.1 200 OK' <&3",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: roro_backend
+    restart: unless-stopped
+    environment:
+      # Database configuration
+      DB_URL: jdbc:mysql://mysql:3306/roro_management_system?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: root
+      DB_PASSWORD: Password
+      DB_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
+
+      # Keycloak configuration
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_EMPLOYEE_REALM: SPCT_Employee
+      KEYCLOAK_CUSTOMER_REALM: SPCT_Customer
+      KEYCLOAK_EMPLOYEE_ISSUER: http://localhost:8180/realms/SPCT_Employee
+      KEYCLOAK_CUSTOMER_ISSUER: http://localhost:8180/realms/SPCT_Customer
+
+      # OAuth2 client credentials
+      EMPLOYEE_KEYCLOAK_ID: employee-portal
+      EMPLOYEE_KEYCLOAK_SECRET: oJlBdBX7PzxGOXIvjBhnazC86bw6yMMI
+      CUSTOMER_KEYCLOAK_ID: customer-portal
+      CUSTOMER_KEYCLOAK_SECRET: qf3siLDpsVlUSoiDMsKJa3O4yMpKQ0eP
+
+      # Application settings
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8081
+
+      # Development settings
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_SHOW_SQL: false
+
+      # Disable auth for development (remove in production)
+      APP_SECURITY_DISABLE_AUTH: true
+    ports:
+      - "8081:8081"
+    volumes:
+      - backend_logs:/app/logs
+    networks:
+      - roro_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: roro_frontend
+    restart: unless-stopped
+    environment:
+      # Next.js configuration
+      NEXT_PUBLIC_API_URL: http://localhost:8081/api
+      NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8180
+      NEXT_PUBLIC_KEYCLOAK_EMPLOYEE_REALM: SPCT_Employee
+      NEXT_PUBLIC_KEYCLOAK_CUSTOMER_REALM: SPCT_Customer
+      NEXT_PUBLIC_EMPLOYEE_CLIENT_ID: employee-portal
+      NEXT_PUBLIC_CUSTOMER_CLIENT_ID: customer-portal
+
+      # Production optimizations
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: 1
+    ports:
+      - "3000:3000"
+    networks:
+      - roro_network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  mysql_data:
+    name: roro_mysql_data
+  keycloak_data:
+    name: roro_keycloak_data
+  backend_logs:
+    name: roro_backend_logs
+networks:
+  roro_network:
+    name: roro_network
+    driver: bridge

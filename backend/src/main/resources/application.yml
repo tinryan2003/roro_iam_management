@@ -1,0 +1,127 @@
+server:
+  port: 8081
+api:
+  prefix: /api
+
+spring:
+  application:
+    name: "backend"
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/roro_management_system?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+    driver-class-name: ${DB_DRIVER_CLASS_NAME:com.mysql.cj.jdbc.Driver}
+  exclude:
+    - org.springframework.boot.autoconfigure.security.oauth2.client.OAuth2ClientAutoConfiguration
+    - org.springframework.boot.autoconfigure.liquibase.LiquibaseAutoConfiguration
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  security:
+    oauth2:
+      registration:
+        employee-portal:
+          provider: keycloak
+          client-id: ${EMPLOYEE_KEYCLOAK_ID:employee-portal}
+          client-secret: ${EMPLOYEE_KEYCLOAK_SECRET:}
+          authorization-grant-type: authorization_code
+          redirect-uri: "{baseUrl}/api/auth/callback/employee-portal"
+          scope: openid, profile, email
+
+        customer-portal:
+          provider: keycloak
+          client-id: ${CUSTOMER_KEYCLOAK_ID:customer-portal}
+          client-secret: ${CUSTOMER_KEYCLOAK_SECRET:}
+          authorization-grant-type: authorization_code
+          redirect-uri: "{baseUrl}/api/auth/callback/customer-portal"
+          scope: openid, profile, email
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+    org.springframework.security.oauth2: DEBUG
+    org.springframework.security.oauth2.jwt: DEBUG
+    org.springframework.security.web: DEBUG
+    org.springframework.security.access: DEBUG
+    org.springframework.security.method: DEBUG
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    org.vgu.roro_management_system: INFO
+    org.vgu.roro_management_system.config: DEBUG
+    org.keycloak: DEBUG
+    org.springframework: INFO
+    org.springframework.web: DEBUG
+  pattern:
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %yellow(%logger{15}) - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/roro-management-system.log
+    max-size: 10MB
+    max-history: 7
+
+keycloak:
+  auth-server-url: ${KEYCLOAK_URL:http://localhost:8180}
+  # Separate realms for employees and customers
+  employee:
+    realm: ${KEYCLOAK_EMPLOYEE_REALM:}
+    issuer: ${KEYCLOAK_EMPLOYEE_ISSUER:}
+    client-id: ${KEYCLOAK_EMPLOYEE_CLIENT_ID:}
+  customer:
+    realm: ${KEYCLOAK_CUSTOMER_REALM:}
+    issuer: ${KEYCLOAK_CUSTOMER_ISSUER:}
+    client-id: ${KEYCLOAK_CUSTOMER_CLIENT_ID:}
+  admin:
+    username: ${KEYCLOAK_ADMIN_USERNAME:}
+    password: ${KEYCLOAK_ADMIN_PASSWORD:}
+    client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:admin-cli}
+  events:
+    secret: 4f046a43-d78b-485e-8c1a-7bff19800577
+
+app:
+  security:
+    # Set to true to allow backend endpoints without authentication (local dev only)
+    disable-auth: true
+
+portal:
+  employee:
+    client-id: employee-portal
+    redirect-url: "/home"
+    theme: "employee"
+  customer:
+    client-id: customer-portal
+    theme: "customer"
+
+# JWT configuration removed - using Keycloak JWTs only
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# Identity Provider Configuration
+identity-providers:
+  auto-sync-users: true
+  create-customer-profiles-automatically: true
+  google:
+    enabled: ${GOOGLE_AUTH_ENABLED:false}
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    scopes:
+      - openid
+      - profile
+      - email
+  github:
+    enabled: ${GITHUB_AUTH_ENABLED:false}
+    client-id: ${GITHUB_CLIENT_ID:}
+    client-secret: ${GITHUB_CLIENT_SECRET:}
+    scopes:
+      - user:email
